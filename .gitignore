@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-bistro/
+
+# Data (large files)
+data/*.npz
+
+# OS
+.DS_Store
+
+# Streamlit
+.streamlit/
+
+# Claude
+.claude/
+
+# Temp
+_report_imgs/
