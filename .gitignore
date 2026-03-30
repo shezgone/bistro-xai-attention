@@ -18,3 +18,4 @@ data/*.npz
 
 # Temp
 _report_imgs/
+CLAUDE.md
