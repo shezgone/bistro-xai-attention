@@ -495,6 +495,9 @@ def load_stage1_screening():
         "ranking_attn":  data["s1_ranking_attn"] if "s1_ranking_attn" in data else None,
         "self_attn":     float(data["s1_self_attn"]) if "s1_self_attn" in data else None,
         "uniform_share": float(data["s1_uniform_share"]) if "s1_uniform_share" in data else None,
+        "s1_n_total":    int(data["n_variates"]) - 1 if "n_variates" in data else None,
+        "forecast_date": [str(d) for d in data["forecast_date"]] if "forecast_date" in data else None,
+        "forecast_med":  data["forecast_med"] if "forecast_med" in data else None,
     }
 
     return cfg, hook_mgr, analyzer, meta

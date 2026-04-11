@@ -398,10 +398,194 @@ def build_daily_panel():
     return panel
 
 
+OUTPUT_TOURNAMENT_DAILY_CSV = os.path.join(
+    os.path.dirname(__file__), "data", "macro_panel_tournament_daily.csv"
+)
+OUTPUT_TOURNAMENT_FREQ_CSV = os.path.join(
+    os.path.dirname(__file__), "data", "variable_freq_tournament.csv"
+)
+
+
+def build_tournament_daily_panel():
+    """
+    토너먼트용 ~300개 변수 일별 패널 구축.
+    tournament_config.py의 FRED_SERIES를 사용.
+    BIS 데이터(CPI_KR_YoY 타겟 포함)는 기존과 동일하게 로딩.
+    """
+    from tournament_config import FRED_SERIES as TOURNAMENT_FRED_SERIES
+
+    print("=" * 60)
+    print("Building TOURNAMENT DAILY panel (~300 variables)")
+    print("=" * 60)
+
+    # ── 1. BIS 데이터 (기존과 동일) ──────────────────────────
+    bis_monthly = {}
+    bis_daily = {}
+
+    cpi = pd.read_csv(f"{DATA_DIR}/bis_cpi_kr_yoy_m.csv", index_col=0)
+    cpi.index = pd.to_datetime(cpi.index)
+    cpi.columns = ["CPI_KR_YoY"]
+    bis_monthly["CPI_KR_YoY"] = cpi
+
+    rate_kr = pd.read_csv(f"{DATA_DIR}/bis_cbpol_kr_m.csv", index_col=0)
+    rate_kr.index = pd.to_datetime(rate_kr.index)
+    rate_kr.columns = ["Rate_KR"]
+    bis_monthly["Rate_KR"] = rate_kr
+
+    rate_xm = pd.read_csv(f"{DATA_DIR}/bis_cbpol_xm_m.csv", index_col=0)
+    rate_xm.index = pd.to_datetime(rate_xm.index)
+    rate_xm.columns = ["Rate_ECB"]
+    bis_monthly["Rate_ECB"] = rate_xm
+
+    oil = pd.read_csv(f"{DATA_DIR}/fred_oil_price_d.csv", index_col=0)
+    oil.index = pd.to_datetime(oil.index)
+    oil.columns = ["Oil_WTI"]
+    bis_daily["Oil_WTI"] = oil
+
+    cpi_us = pd.read_csv(f"{DATA_DIR}/bis_cpi_us_yoy_m.csv", index_col=0)
+    cpi_us.index = pd.to_datetime(cpi_us.index)
+    cpi_us.columns = ["CPI_US_YoY"]
+    bis_monthly["CPI_US_YoY"] = cpi_us
+
+    cpi_xm = pd.read_csv(f"{DATA_DIR}/bis_cpi_xm_yoy_m.csv", index_col=0)
+    cpi_xm.index = pd.to_datetime(cpi_xm.index)
+    cpi_xm.columns = ["CPI_XM_YoY"]
+    bis_monthly["CPI_XM_YoY"] = cpi_xm
+
+    print(f"  Loaded {len(bis_monthly)} BIS monthly + {len(bis_daily)} BIS daily")
+
+    # ── 2. FRED 다운로드 (300개) ─────────────────────────────
+    fred_daily = {}
+    fred_monthly = {}
+    freq_map = {}  # name → "daily" / "monthly"
+    failed = []
+
+    total = len(TOURNAMENT_FRED_SERIES)
+    for idx, (series_id, name, freq, transform) in enumerate(TOURNAMENT_FRED_SERIES, 1):
+        print(f"  [{idx:>3}/{total}] {series_id} ({name})...", end=" ")
+        try:
+            raw = download_fred(series_id)
+            raw = raw.dropna()
+            raw.columns = [name]
+
+            if transform == "yoy":
+                if freq == "d":
+                    monthly = raw.resample("M").mean()
+                    monthly[name] = monthly[name].pct_change(12) * 100
+                    monthly = monthly.dropna()
+                    fred_monthly[name] = monthly
+                    freq_map[name] = "monthly"
+                else:
+                    monthly = raw.copy()
+                    monthly[name] = monthly[name].pct_change(12) * 100
+                    monthly = monthly.dropna()
+                    fred_monthly[name] = monthly
+                    freq_map[name] = "monthly"
+            elif transform == "diff":
+                if freq == "d":
+                    monthly = raw.resample("M").mean()
+                    monthly[name] = monthly[name].diff()
+                    monthly = monthly.dropna()
+                    fred_monthly[name] = monthly
+                    freq_map[name] = "monthly"
+                else:
+                    raw[name] = raw[name].diff()
+                    raw = raw.dropna()
+                    fred_monthly[name] = raw
+                    freq_map[name] = "monthly"
+            elif freq == "d":
+                fred_daily[name] = raw
+                freq_map[name] = "daily"
+            else:
+                fred_monthly[name] = raw
+                freq_map[name] = "monthly"
+
+            print(f"OK ({len(raw)} rows)")
+        except Exception as e:
+            print(f"FAILED: {e}")
+            failed.append((series_id, name, str(e)))
+        time.sleep(0.3)
+
+    if failed:
+        print(f"\n  ⚠ {len(failed)} series failed:")
+        for sid, name, err in failed:
+            print(f"    {sid} ({name}): {err}")
+
+    # BIS 주기 메타 추가
+    for name in bis_monthly:
+        freq_map[name] = "monthly"
+    for name in bis_daily:
+        freq_map[name] = "daily"
+
+    # ── 3. 일별 패널 조립 ────────────────────────────────────
+    start = pd.Timestamp("2003-01-01")
+    end = pd.Timestamp("2025-12-31")
+    daily_idx = pd.date_range(start, end, freq="D")
+    panel = pd.DataFrame(index=daily_idx)
+
+    # 일별 변수
+    all_daily = {**bis_daily, **fred_daily}
+    for name, df in sorted(all_daily.items()):
+        df = df.loc[start:end]
+        panel = panel.join(df, how="left")
+
+    # 월별 변수 → forward-fill
+    all_monthly = {**bis_monthly, **fred_monthly}
+    for name, df in sorted(all_monthly.items()):
+        df = df.loc[start:end]
+        df_daily = df.reindex(daily_idx).ffill()
+        panel[name] = df_daily[name]
+
+    # CPI_KR_YoY를 첫 번째 열로
+    cols = panel.columns.tolist()
+    if "CPI_KR_YoY" in cols:
+        cols.remove("CPI_KR_YoY")
+        cols = ["CPI_KR_YoY"] + cols
+        panel = panel[cols]
+
+    # 결측치 처리
+    panel = panel.ffill(limit=5).bfill(limit=5)
+
+    # 50% 이상 NaN인 열 제거
+    before = set(panel.columns.tolist())
+    threshold = len(panel) * 0.5
+    panel = panel.dropna(axis=1, thresh=int(threshold))
+    dropped = before - set(panel.columns.tolist())
+    if dropped:
+        print(f"\n  Dropped {len(dropped)} columns with >50% NaN: {sorted(dropped)}")
+
+    # 나머지 NaN → 선형 보간
+    panel = panel.interpolate(method="linear").bfill().ffill()
+
+    # ── 4. 저장 ──────────────────────────────────────────────
+    freq_df = pd.DataFrame([
+        {"variable": col, "original_freq": freq_map.get(col, "unknown")}
+        for col in panel.columns
+    ])
+    freq_df.to_csv(OUTPUT_TOURNAMENT_FREQ_CSV, index=False)
+
+    panel.to_csv(OUTPUT_TOURNAMENT_DAILY_CSV)
+
+    print(f"\n{'=' * 60}")
+    print(f"Tournament daily panel: {panel.shape[0]} days × {panel.shape[1]} variables")
+    print(f"Period: {panel.index[0].strftime('%Y-%m-%d')} ~ {panel.index[-1].strftime('%Y-%m-%d')}")
+    n_d = sum(1 for c in panel.columns if freq_map.get(c) == "daily")
+    n_m = sum(1 for c in panel.columns if freq_map.get(c) == "monthly")
+    print(f"  Daily vars: {n_d}, Monthly vars: {n_m}")
+    print(f"  Failed downloads: {len(failed)}")
+    print(f"Saved: {OUTPUT_TOURNAMENT_DAILY_CSV}")
+    print(f"Saved: {OUTPUT_TOURNAMENT_FREQ_CSV}")
+    print("=" * 60)
+
+    return panel
+
+
 if __name__ == "__main__":
     import sys
-    if "--daily" in sys.argv:
+    if "--tournament" in sys.argv:
+        build_tournament_daily_panel()
+    elif "--daily" in sys.argv:
         build_daily_panel()
     else:
         build_panel()
-        print("\nTip: use --daily to build daily panel")
+        print("\nTip: use --daily for daily panel, --tournament for 300-var panel")

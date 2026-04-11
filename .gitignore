@@ -6,6 +6,10 @@ __pycache__/
 
 # Data (large files)
 data/*.npz
+data/stage0/
+data/tournament/
+data/macro_panel_tournament_daily.csv
+*.pdf
 
 # OS
 .DS_Store
