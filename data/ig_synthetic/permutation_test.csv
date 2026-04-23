@@ -1,0 +1,10 @@
+method,K,baseline_mse,mse_delta,mse_delta_std
+attention,3,0.0117,0.1981,0.006
+IG,3,0.0117,1.5015,0.0434
+random-noise (K=3),3,0.0117,0.0,0.0
+attention,5,0.0117,0.1968,0.0072
+IG,5,0.0117,1.474,0.0554
+random-noise (K=5),5,0.0117,0.0,0.0
+attention,10,0.0117,0.1988,0.0063
+IG,10,0.0117,1.492,0.0611
+random-noise (K=10),10,0.0117,0.0,0.0

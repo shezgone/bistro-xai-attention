@@ -1,0 +1,5 @@
+K,attn_precision,ig_precision,attn_has_spurious,ig_has_spurious
+3,0.3333333333333333,1.0,False,False
+5,0.3333333333333333,1.0,False,False
+10,0.3333333333333333,1.0,False,False
+20,0.6666666666666666,1.0,False,False
